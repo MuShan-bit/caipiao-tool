@@ -1,0 +1,24 @@
+{
+  "name": "lottery-inference-tool",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --force",
+    "dev:clean": "rm -rf node_modules/.vite && vite --force",
+    "build": "vite build",
+    "preview": "vite preview",
+    "sync:mobile": "npm run build && npx cap sync",
+    "add:android": "npx cap add android",
+    "add:ios": "npx cap add ios",
+    "open:android": "npx cap open android",
+    "open:ios": "npx cap open ios"
+  },
+  "devDependencies": {
+    "vite": "^8.0.4"
+  },
+  "dependencies": {
+    "@capacitor/cli": "^8.3.0",
+    "@capacitor/core": "^8.3.0"
+  }
+}
