@@ -5,11 +5,6 @@ const GRID_COLUMNS = 4
 const GRID_ROWS = 4
 const CELLS_PER_ISSUE = GRID_COLUMNS * GRID_ROWS
 const RESULT_GROUP_COUNT = 10
-const DEMO_ISSUES = [
-  [1, 6, 3, 8, 4, 9, 2, 5, 7, 1, 8, 6, 3, 4, 9, 2],
-  [5, 2, 7, 4, 8, 3, 1, 6, 9, 5, 2, 7, 4, 8, 3, 1],
-  [2, 7, 4, 9, 6, 1, 5, 3, 8, 2, 7, 4, 9, 6, 1, 5],
-]
 
 const app = document.querySelector('#app')
 
@@ -285,7 +280,7 @@ function inferLotteryResults(issues) {
 }
 
 function getDefaultResults() {
-  return calculateGroupsFromIssues(DEMO_ISSUES)
+  return emptyGroups()
 }
 
 function calculateGroupsFromIssues(issues) {
