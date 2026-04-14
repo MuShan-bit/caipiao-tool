@@ -5,6 +5,8 @@ const GRID_COLUMNS = 4
 const GRID_ROWS = 4
 const CELLS_PER_ISSUE = GRID_COLUMNS * GRID_ROWS
 const RESULT_GROUP_COUNT = 10
+const HISTORY_STORAGE_KEY = 'lottery_inference_history_v1'
+const HISTORY_LIMIT = 30
 
 const app = document.querySelector('#app')
 
@@ -14,45 +16,25 @@ const state = {
   issues: Array.from({ length: ISSUE_COUNT }, () => Array(CELLS_PER_ISSUE).fill('')),
   results: getDefaultResults(),
   lastComputedAt: null,
+  historyRecords: loadHistoryRecords(),
+  historyOpen: false,
 }
 
 render()
 
 function render() {
-  const filledCells = state.issues.flat().filter(Boolean).length
-  const fullIssues = state.issues.filter((issue) => issue.every(Boolean)).length
-
   app.innerHTML = `
     <div class="app-shell">
       ${renderHeader()}
 
-      <div class="workspace">
-        <main class="main-zone">
-          <div class="status-line">
-            <span class="inference-pulse" aria-hidden="true"></span>
-            <span>${state.statusText}</span>
-          </div>
+      <main class="main-zone">
+        <div class="status-line">
+          <span class="inference-pulse" aria-hidden="true"></span>
+          <span>${state.statusText}</span>
+        </div>
 
-          ${state.activeView === 'input' ? renderInputView() : renderResultView()}
-        </main>
-
-        <aside class="insight-panel" aria-label="数据概览">
-          <h2 class="panel-title">推理工作台</h2>
-          <div class="insight-card">
-            <p class="insight-label">已录入数字</p>
-            <p class="insight-value">${filledCells} / ${ISSUE_COUNT * CELLS_PER_ISSUE}</p>
-          </div>
-          <div class="insight-card">
-            <p class="insight-label">完整期数</p>
-            <p class="insight-value">${fullIssues} / ${ISSUE_COUNT}</p>
-          </div>
-          <div class="insight-card is-soft">
-            <p class="insight-label">当前规则</p>
-            <p class="insight-note">按和值个位数 0~9 分组：每组固定第2行目标个位。</p>
-          </div>
-          <button class="btn btn-secondary" id="clear-data-btn" type="button">清空全部</button>
-        </aside>
-      </div>
+        ${state.activeView === 'input' ? renderInputView() : renderResultView()}
+      </main>
 
       <section class="action-dock">
         <button class="btn btn-primary" id="run-btn" type="button">${
@@ -75,6 +57,8 @@ function render() {
           <span>推理结果</span>
         </button>
       </nav>
+
+      ${renderHistoryPanel()}
     </div>
   `
 
@@ -89,8 +73,8 @@ function renderHeader() {
           ${backIcon()}
         </button>
         <h1 class="header-title">推理结果</h1>
-        <button class="icon-btn" type="button" aria-label="状态面板">
-          ${panelIcon()}
+        <button class="icon-btn" type="button" data-action="open-history" aria-label="历史记录">
+          ${historyIcon()}
         </button>
       </header>
     `
@@ -103,7 +87,7 @@ function renderHeader() {
         <h1 class="header-title">彩票号码推理工具</h1>
       </div>
       <div class="header-actions">
-        <button class="icon-btn" type="button" aria-label="历史记录">
+        <button class="icon-btn" type="button" data-action="open-history" aria-label="历史记录">
           ${historyIcon()}
         </button>
         <button class="icon-btn" type="button" aria-label="设置">
@@ -158,34 +142,95 @@ function renderResultView() {
   return `
     <section class="content-list result-list">
       ${state.results
-        .map(
-          (group) => `
+        .map((group) => {
+          const columnCount = Math.max(...group.rows.map((row) => row.length), 0)
+          return `
             <article class="result-card">
               <div class="result-head">
                 <h3 class="result-title">${group.title}</h3>
               </div>
-              ${group.rows
-                .map((numbers, rowIndex) =>
-                  renderResultRow(numbers, rowIndex === 0 ? 'is-primary' : rowIndex === 1 ? 'is-soft' : 'is-neutral'),
-                )
-                .join('')}
+              <div class="result-scroll-wrap">
+                <div class="result-rows" style="--col-count: ${columnCount};">
+                  ${group.rows
+                    .map((numbers, rowIndex) =>
+                      renderResultRow(
+                        numbers,
+                        rowIndex === 0 ? 'is-primary' : rowIndex === 1 ? 'is-soft' : 'is-neutral',
+                        columnCount,
+                      ),
+                    )
+                    .join('')}
+                </div>
+              </div>
             </article>
-          `,
-        )
+          `
+        })
         .join('')}
     </section>
   `
 }
 
-function renderResultRow(numbers, chipClassName) {
+function renderResultRow(numbers, chipClassName, columnCount) {
+  const cells = Array.from({ length: columnCount }, (_, index) => {
+    const num = numbers[index]
+    if (num == null) {
+      return `<span class="number-chip ${chipClassName} is-empty" aria-hidden="true"></span>`
+    }
+    return `<span class="number-chip ${chipClassName}">${formatNumber(num)}</span>`
+  }).join('')
+
   return `
     <div class="result-row">
-      <div class="chip-list">
-        ${numbers
-          .map((num) => `<span class="number-chip ${chipClassName}">${formatNumber(num)}</span>`)
-          .join('')}
-      </div>
+      <div class="chip-list">${cells}</div>
     </div>
+  `
+}
+
+function renderHistoryPanel() {
+  if (!state.historyOpen) {
+    return ''
+  }
+
+  return `
+    <div class="history-overlay" id="history-overlay" aria-hidden="true"></div>
+    <aside class="history-drawer" role="dialog" aria-modal="true" aria-label="历史记录">
+      <div class="history-head">
+        <h2 class="history-title">历史记录</h2>
+        <button class="history-close" id="history-close-btn" type="button">关闭</button>
+      </div>
+      <div class="history-body">
+        ${
+          state.historyRecords.length
+            ? state.historyRecords
+                .map((record) => {
+                  const computedAt = formatTime(record.createdAt)
+                  const filledCount = record.issues.flat().filter((value) => value !== '').length
+                  const matchedCount = record.results.reduce((total, group) => {
+                    const current = Math.max(...group.rows.map((row) => row.length), 0)
+                    return total + current
+                  }, 0)
+
+                  return `
+                    <article class="history-item">
+                      <h3 class="history-item-title">${computedAt}</h3>
+                      <p class="history-item-meta">录入 ${filledCount}/${ISSUE_COUNT * CELLS_PER_ISSUE} 位 · 匹配 ${matchedCount} 组</p>
+                      <div class="history-item-actions">
+                        <button class="history-item-btn" data-history-restore="${record.id}" type="button">恢复</button>
+                        <button class="history-item-btn is-danger" data-history-delete="${record.id}" type="button">删除</button>
+                      </div>
+                    </article>
+                  `
+                })
+                .join('')
+            : '<p class="history-empty">暂无历史记录，完成一次计算后会自动保存。</p>'
+        }
+      </div>
+      <div class="history-foot">
+        <button class="btn btn-secondary" id="history-clear-btn" type="button" ${
+          state.historyRecords.length ? '' : 'disabled'
+        }>清空历史</button>
+      </div>
+    </aside>
   `
 }
 
@@ -209,6 +254,57 @@ function bindEvents() {
     })
   })
 
+  const openHistoryButtons = document.querySelectorAll('[data-action="open-history"]')
+  openHistoryButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      state.historyOpen = true
+      render()
+    })
+  })
+
+  const historyCloseButton = document.querySelector('#history-close-btn')
+  historyCloseButton?.addEventListener('click', closeHistoryPanel)
+
+  const historyOverlay = document.querySelector('#history-overlay')
+  historyOverlay?.addEventListener('click', closeHistoryPanel)
+
+  const historyClearButton = document.querySelector('#history-clear-btn')
+  historyClearButton?.addEventListener('click', () => {
+    state.historyRecords = []
+    persistHistoryRecords(state.historyRecords)
+    state.statusText = '历史记录已清空'
+    state.historyOpen = false
+    render()
+  })
+
+  const restoreButtons = document.querySelectorAll('[data-history-restore]')
+  restoreButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const recordId = button.getAttribute('data-history-restore')
+      const record = state.historyRecords.find((item) => item.id === recordId)
+      if (!record) {
+        return
+      }
+      state.issues = cloneIssues(record.issues)
+      state.results = cloneResults(record.results)
+      state.activeView = 'result'
+      state.lastComputedAt = formatTime(record.createdAt)
+      state.statusText = `已恢复历史记录：${state.lastComputedAt}`
+      state.historyOpen = false
+      render()
+    })
+  })
+
+  const deleteButtons = document.querySelectorAll('[data-history-delete]')
+  deleteButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const recordId = button.getAttribute('data-history-delete')
+      state.historyRecords = state.historyRecords.filter((item) => item.id !== recordId)
+      persistHistoryRecords(state.historyRecords)
+      render()
+    })
+  })
+
   const clearDataButton = document.querySelector('#clear-data-btn')
   clearDataButton?.addEventListener('click', () => {
     state.issues = Array.from({ length: ISSUE_COUNT }, () => Array(CELLS_PER_ISSUE).fill(''))
@@ -228,10 +324,16 @@ function bindEvents() {
       return
     }
 
-    state.results = inferLotteryResults(state.issues)
+    const computedResults = inferLotteryResults(state.issues)
+    state.results = computedResults
     state.activeView = 'result'
-    state.lastComputedAt = formatTime()
-    state.statusText = `计算已完成：${state.lastComputedAt}`
+    state.lastComputedAt = formatTime(new Date())
+    state.historyRecords = [createHistoryRecord(state.issues, computedResults), ...state.historyRecords].slice(
+      0,
+      HISTORY_LIMIT,
+    )
+    persistHistoryRecords(state.historyRecords)
+    state.statusText = `计算已完成：${state.lastComputedAt}，已保存到历史记录`
     render()
   })
 
@@ -240,6 +342,92 @@ function bindEvents() {
     input.addEventListener('keydown', onDigitKeyDown)
     input.addEventListener('input', onDigitInput)
   })
+}
+
+function closeHistoryPanel() {
+  state.historyOpen = false
+  render()
+}
+
+function createHistoryRecord(issues, results) {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    createdAt: new Date().toISOString(),
+    issues: cloneIssues(issues),
+    results: cloneResults(results),
+  }
+}
+
+function loadHistoryRecords() {
+  try {
+    const raw = localStorage.getItem(HISTORY_STORAGE_KEY)
+    if (!raw) {
+      return []
+    }
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+    return parsed.map(normalizeHistoryRecord).filter(Boolean).slice(0, HISTORY_LIMIT)
+  } catch {
+    return []
+  }
+}
+
+function persistHistoryRecords(records) {
+  try {
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(records))
+  } catch {
+    // Ignore quota/security failures and keep app usable.
+  }
+}
+
+function normalizeHistoryRecord(record) {
+  if (!record || typeof record !== 'object') {
+    return null
+  }
+  const id = typeof record.id === 'string' ? record.id : null
+  const createdAt = typeof record.createdAt === 'string' ? record.createdAt : null
+  const issues = Array.isArray(record.issues) ? cloneIssues(record.issues) : null
+  const results = Array.isArray(record.results) ? cloneResults(record.results) : null
+
+  if (!id || !createdAt || !issues || !results) {
+    return null
+  }
+
+  return {
+    id,
+    createdAt,
+    issues,
+    results,
+  }
+}
+
+function cloneIssues(issues) {
+  return issues.map((issue) => issue.map((value) => String(value ?? '')))
+}
+
+function cloneResults(results) {
+  return results
+    .filter((group) => group && typeof group === 'object' && Array.isArray(group.rows))
+    .map((group, index) => {
+      const rows = group.rows.slice(0, 3).map((row) =>
+        Array.isArray(row)
+          ? row
+              .map((value) => Number(value))
+              .filter((value) => Number.isInteger(value) && value >= 0 && value <= 9)
+          : [],
+      )
+
+      while (rows.length < 3) {
+        rows.push([])
+      }
+
+      return {
+        title: typeof group.title === 'string' ? group.title : `第${index + 1}组`,
+        rows,
+      }
+    })
 }
 
 function onDigitKeyDown(event) {
@@ -382,8 +570,13 @@ function formatNumber(number) {
   return String(number)
 }
 
-function formatTime() {
-  return new Date().toLocaleString('zh-CN', {
+function formatTime(input = new Date()) {
+  const date = input instanceof Date ? input : new Date(input)
+  if (Number.isNaN(date.getTime())) {
+    return '--'
+  }
+
+  return date.toLocaleString('zh-CN', {
     hour12: false,
     month: '2-digit',
     day: '2-digit',
