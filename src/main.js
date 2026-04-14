@@ -18,6 +18,7 @@ const state = {
   lastComputedAt: null,
   historyRecords: loadHistoryRecords(),
   historyOpen: false,
+  columnModal: null,
 }
 
 render()
@@ -59,6 +60,7 @@ function render() {
       </nav>
 
       ${renderHistoryPanel()}
+      ${renderColumnModal()}
     </div>
   `
 
@@ -140,24 +142,13 @@ function renderResultView() {
     <section class="content-list result-list">
       ${state.results
         .map((group) => {
-          const columnCount = Math.max(...group.rows.map((row) => row.length), 0)
           return `
             <article class="result-card">
               <div class="result-head">
                 <h3 class="result-title">${group.title}</h3>
               </div>
-              <div class="result-scroll-wrap">
-                <div class="result-rows" style="--col-count: ${columnCount};">
-                  ${group.rows
-                    .map((numbers, rowIndex) =>
-                      renderResultRow(
-                        numbers,
-                        rowIndex === 0 ? 'is-primary' : rowIndex === 1 ? 'is-soft' : 'is-neutral',
-                        columnCount,
-                      ),
-                    )
-                    .join('')}
-                </div>
+              <div class="subgroup-list">
+                ${group.subgroups.map((subgroup) => renderResultSubgroup(group, subgroup)).join('')}
               </div>
             </article>
           `
@@ -167,13 +158,53 @@ function renderResultView() {
   `
 }
 
-function renderResultRow(numbers, chipClassName, columnCount) {
+function renderResultSubgroup(group, subgroup) {
+  const columnCount = subgroup.columns.length
+  return `
+    <section class="result-subgroup">
+      <h4 class="subgroup-label">${subgroup.label}</h4>
+      ${
+        columnCount
+          ? `
+            <div class="result-scroll-wrap">
+              <div class="result-rows" style="--col-count: ${columnCount};">
+                ${[0, 1, 2]
+                  .map((rowIndex) =>
+                    renderResultRow(
+                      subgroup.columns,
+                      rowIndex,
+                      rowIndex === 0 ? 'is-primary' : rowIndex === 1 ? 'is-soft' : 'is-neutral',
+                      group.title,
+                      subgroup.label,
+                    ),
+                  )
+                  .join('')}
+              </div>
+            </div>
+          `
+          : '<p class="subgroup-empty">无匹配</p>'
+      }
+    </section>
+  `
+}
+
+function renderResultRow(columns, rowIndex, chipClassName, groupTitle, subgroupLabel) {
+  const columnCount = columns.length
   const cells = Array.from({ length: columnCount }, (_, index) => {
-    const num = numbers[index]
-    if (num == null) {
+    const column = columns[index]
+    const num = column?.digits?.[rowIndex]
+    if (!Number.isInteger(num)) {
       return `<span class="number-chip ${chipClassName} is-empty" aria-hidden="true"></span>`
     }
-    return `<span class="number-chip ${chipClassName}">${formatNumber(num)}</span>`
+
+    return `
+      <button
+        class="number-chip ${chipClassName}"
+        type="button"
+        data-column-id="${column.id}"
+        title="${groupTitle} ${subgroupLabel} 第${index + 1}列"
+      >${formatNumber(num)}</button>
+    `
   }).join('')
 
   return `
@@ -202,10 +233,7 @@ function renderHistoryPanel() {
                 .map((record) => {
                   const computedAt = formatTime(record.createdAt)
                   const filledCount = record.issues.flat().filter((value) => value !== '').length
-                  const matchedCount = record.results.reduce((total, group) => {
-                    const current = Math.max(...group.rows.map((row) => row.length), 0)
-                    return total + current
-                  }, 0)
+                  const matchedCount = countMatchedColumns(record.results)
 
                   return `
                     <article class="history-item">
@@ -231,6 +259,55 @@ function renderHistoryPanel() {
   `
 }
 
+function renderColumnModal() {
+  if (!state.columnModal) {
+    return ''
+  }
+
+  const { groupTitle, subgroupLabel, columnIndex, picks, digits } = state.columnModal
+  return `
+    <div class="column-modal-overlay" id="column-modal-overlay" aria-hidden="true"></div>
+    <aside class="column-modal" role="dialog" aria-modal="true" aria-label="列坐标详情">
+      <div class="column-modal-head">
+        <div class="column-modal-head-text">
+          <h2 class="column-modal-title">${groupTitle} · ${subgroupLabel} · 第${columnIndex}列</h2>
+          <p class="column-modal-note">该列三数和值个位：${digits[1]}，高亮显示对应输入数据的 9 个点位。</p>
+        </div>
+        <button class="column-modal-close" id="column-modal-close" type="button">关闭</button>
+      </div>
+      <div class="column-modal-body">
+        ${state.issues.map((issue, issueIndex) => renderModalIssueGrid(issue, issueIndex, picks)).join('')}
+      </div>
+    </aside>
+  `
+}
+
+function renderModalIssueGrid(issue, issueIndex, picks) {
+  return `
+    <article class="modal-issue-card">
+      <h3 class="modal-issue-title">第${issueIndex + 1}期</h3>
+      <div class="modal-issue-grid">
+        ${issue
+          .map((value, cellIndex) => {
+            const row = Math.floor(cellIndex / GRID_COLUMNS)
+            const col = cellIndex % GRID_COLUMNS
+            const isActive = hasCoord(picks, row, col)
+            return `
+              <span class="modal-issue-cell ${isActive ? 'is-highlight' : ''}">
+                ${value === '' ? '-' : value}
+              </span>
+            `
+          })
+          .join('')}
+      </div>
+    </article>
+  `
+}
+
+function hasCoord(picks, row, col) {
+  return picks.some((coord) => coord.row === row && coord.col === col)
+}
+
 function bindEvents() {
   const navButtons = document.querySelectorAll('[data-view]')
   navButtons.forEach((button) => {
@@ -240,6 +317,7 @@ function bindEvents() {
         return
       }
       state.activeView = nextView
+      state.columnModal = null
       if (nextView === 'input') {
         state.statusText = '准备就绪：请输入历史开奖数据以供推理'
       } else if (nextView === 'result') {
@@ -255,6 +333,7 @@ function bindEvents() {
   openHistoryButtons.forEach((button) => {
     button.addEventListener('click', () => {
       state.historyOpen = true
+      state.columnModal = null
       render()
     })
   })
@@ -264,6 +343,12 @@ function bindEvents() {
 
   const historyOverlay = document.querySelector('#history-overlay')
   historyOverlay?.addEventListener('click', closeHistoryPanel)
+
+  const columnModalOverlay = document.querySelector('#column-modal-overlay')
+  columnModalOverlay?.addEventListener('click', closeColumnModal)
+
+  const columnModalCloseButton = document.querySelector('#column-modal-close')
+  columnModalCloseButton?.addEventListener('click', closeColumnModal)
 
   const historyClearButton = document.querySelector('#history-clear-btn')
   historyClearButton?.addEventListener('click', () => {
@@ -288,6 +373,7 @@ function bindEvents() {
       state.lastComputedAt = formatTime(record.createdAt)
       state.statusText = `已恢复历史记录：${state.lastComputedAt}`
       state.historyOpen = false
+      state.columnModal = null
       render()
     })
   })
@@ -300,13 +386,6 @@ function bindEvents() {
       persistHistoryRecords(state.historyRecords)
       render()
     })
-  })
-
-  const clearDataButton = document.querySelector('#clear-data-btn')
-  clearDataButton?.addEventListener('click', () => {
-    state.issues = Array.from({ length: ISSUE_COUNT }, () => Array(CELLS_PER_ISSUE).fill(''))
-    state.statusText = '已清空：请重新输入历史数据'
-    render()
   })
 
   const runButton = document.querySelector('#run-btn')
@@ -331,6 +410,7 @@ function bindEvents() {
     )
     persistHistoryRecords(state.historyRecords)
     state.statusText = `计算已完成：${state.lastComputedAt}，已保存到历史记录`
+    state.columnModal = null
     render()
   })
 
@@ -339,11 +419,78 @@ function bindEvents() {
     input.addEventListener('keydown', onDigitKeyDown)
     input.addEventListener('input', onDigitInput)
   })
+
+  const resultColumnButtons = document.querySelectorAll('[data-column-id]')
+  resultColumnButtons.forEach((button) => {
+    const columnId = button.getAttribute('data-column-id')
+    if (!columnId) {
+      return
+    }
+
+    button.addEventListener('mouseenter', () => {
+      setFocusedColumn(columnId)
+    })
+    button.addEventListener('mouseleave', () => {
+      setFocusedColumn(null)
+    })
+    button.addEventListener('focus', () => {
+      setFocusedColumn(columnId)
+    })
+    button.addEventListener('blur', () => {
+      setFocusedColumn(null)
+    })
+    button.addEventListener('click', () => {
+      openColumnModal(columnId)
+    })
+  })
 }
 
 function closeHistoryPanel() {
   state.historyOpen = false
   render()
+}
+
+function closeColumnModal() {
+  state.columnModal = null
+  render()
+}
+
+function setFocusedColumn(columnId) {
+  const chips = document.querySelectorAll('.number-chip[data-column-id]')
+  chips.forEach((chip) => {
+    const currentId = chip.getAttribute('data-column-id')
+    chip.classList.toggle('is-column-focused', Boolean(columnId) && currentId === columnId)
+  })
+}
+
+function openColumnModal(columnId) {
+  const matched = findColumnById(state.results, columnId)
+  if (!matched) {
+    return
+  }
+  state.columnModal = matched
+  render()
+}
+
+function findColumnById(results, columnId) {
+  for (const group of results) {
+    for (const subgroup of group.subgroups) {
+      for (let index = 0; index < subgroup.columns.length; index += 1) {
+        const column = subgroup.columns[index]
+        if (column.id !== columnId) {
+          continue
+        }
+        return {
+          groupTitle: group.title,
+          subgroupLabel: subgroup.label,
+          columnIndex: index + 1,
+          digits: [...column.digits],
+          picks: column.picks.map((coord) => ({ row: coord.row, col: coord.col })),
+        }
+      }
+    }
+  }
+  return null
 }
 
 function createHistoryRecord(issues, results) {
@@ -405,26 +552,118 @@ function cloneIssues(issues) {
 }
 
 function cloneResults(results) {
-  return results
-    .filter((group) => group && typeof group === 'object' && Array.isArray(group.rows))
-    .map((group, index) => {
-      const rows = group.rows.slice(0, 3).map((row) =>
-        Array.isArray(row)
-          ? row
-              .map((value) => Number(value))
-              .filter((value) => Number.isInteger(value) && value >= 0 && value <= 9)
-          : [],
-      )
+  if (!Array.isArray(results) || !results.length) {
+    return emptyGroups()
+  }
 
-      while (rows.length < 3) {
-        rows.push([])
-      }
+  const normalized = results
+    .filter((group) => group && typeof group === 'object')
+    .map((group, index) => normalizeResultGroup(group, index))
 
-      return {
-        title: typeof group.title === 'string' ? group.title : `第${index + 1}组`,
-        rows,
-      }
+  if (!normalized.length) {
+    return emptyGroups()
+  }
+
+  return normalized
+}
+
+function normalizeResultGroup(group, index) {
+  const groupNumber = index + 1
+  const subgroups = Array.isArray(group.subgroups)
+    ? normalizeSubgroups(group.subgroups, groupNumber)
+    : normalizeLegacyRows(group.rows, groupNumber)
+
+  return {
+    title: typeof group.title === 'string' ? group.title : `第${groupNumber}组`,
+    subgroups,
+  }
+}
+
+function normalizeSubgroups(rawSubgroups, groupNumber) {
+  const normalized = Array.from({ length: GRID_COLUMNS }, (_, fixedCol) => {
+    const raw = rawSubgroups[fixedCol]
+    const columns = Array.isArray(raw?.columns)
+      ? raw.columns
+          .map((column, columnIndex) => normalizeColumn(column, groupNumber, fixedCol, columnIndex))
+          .filter(Boolean)
+      : []
+    return {
+      label: typeof raw?.label === 'string' ? raw.label : `${groupNumber}.${fixedCol + 1}`,
+      columns,
+    }
+  })
+
+  return normalized
+}
+
+function normalizeLegacyRows(rows, groupNumber) {
+  const safeRows = Array.isArray(rows)
+    ? rows.slice(0, 3).map((row) => (Array.isArray(row) ? row : []))
+    : [[], [], []]
+
+  while (safeRows.length < 3) {
+    safeRows.push([])
+  }
+
+  const length = Math.max(...safeRows.map((row) => row.length), 0)
+  const legacyColumns = []
+  for (let columnIndex = 0; columnIndex < length; columnIndex += 1) {
+    const digits = safeRows.map((row) => Number(row[columnIndex]))
+    if (!digits.every((value) => Number.isInteger(value) && value >= 0 && value <= 9)) {
+      continue
+    }
+    legacyColumns.push({
+      id: buildColumnId(groupNumber - 1, 0, columnIndex),
+      digits,
+      picks: [],
     })
+  }
+
+  return Array.from({ length: GRID_COLUMNS }, (_, fixedCol) => ({
+    label: `${groupNumber}.${fixedCol + 1}`,
+    columns: fixedCol === 0 ? legacyColumns : [],
+  }))
+}
+
+function normalizeColumn(column, groupNumber, fixedCol, columnIndex) {
+  if (!column || typeof column !== 'object') {
+    return null
+  }
+
+  const digits = Array.isArray(column.digits) ? column.digits.slice(0, 3).map((value) => Number(value)) : []
+  if (digits.length !== 3 || !digits.every((value) => Number.isInteger(value) && value >= 0 && value <= 9)) {
+    return null
+  }
+
+  const picks = Array.isArray(column.picks)
+    ? column.picks
+        .map((coord) => ({
+          row: Number(coord?.row),
+          col: Number(coord?.col),
+        }))
+        .filter(
+          (coord) =>
+            Number.isInteger(coord.row) &&
+            Number.isInteger(coord.col) &&
+            coord.row >= 0 &&
+            coord.row < GRID_ROWS &&
+            coord.col >= 0 &&
+            coord.col < GRID_COLUMNS,
+        )
+    : []
+
+  return {
+    id: typeof column.id === 'string' ? column.id : buildColumnId(groupNumber - 1, fixedCol, columnIndex),
+    digits,
+    picks,
+  }
+}
+
+function countMatchedColumns(results) {
+  return results.reduce((total, group) => {
+    const groupTotal = group.subgroups.reduce((subtotal, subgroup) => subtotal + subgroup.columns.length, 0)
+    return total + groupTotal
+  }, 0)
 }
 
 function onDigitKeyDown(event) {
@@ -486,9 +725,10 @@ function calculateGroupsFromIssues(issues) {
 
   return Array.from({ length: RESULT_GROUP_COUNT }, (_, groupIndex) => {
     const targetDigit = groupIndex
-    const firstRow = []
-    const secondRow = []
-    const thirdRow = []
+    const subgroups = Array.from({ length: GRID_COLUMNS }, (_, fixedCol) => ({
+      label: `${groupIndex + 1}.${fixedCol + 1}`,
+      columns: [],
+    }))
 
     for (let fixedCol = 0; fixedCol < GRID_COLUMNS; fixedCol += 1) {
       const secondFixed = secondIssue[GRID_ROWS - 1][fixedCol]
@@ -526,16 +766,23 @@ function calculateGroupsFromIssues(issues) {
             continue
           }
 
-          firstRow.push((firstA + firstB + firstFixed) % 10)
-          secondRow.push(secondDigit)
-          thirdRow.push((thirdA + thirdB + thirdFixed) % 10)
+          const columnIndex = subgroups[fixedCol].columns.length
+          subgroups[fixedCol].columns.push({
+            id: buildColumnId(groupIndex, fixedCol, columnIndex),
+            digits: [(firstA + firstB + firstFixed) % 10, secondDigit, (thirdA + thirdB + thirdFixed) % 10],
+            picks: [
+              { row: coordA.row, col: coordA.col },
+              { row: coordB.row, col: coordB.col },
+              { row: GRID_ROWS - 1, col: fixedCol },
+            ],
+          })
         }
       }
     }
 
     return {
       title: `第${groupIndex + 1}组`,
-      rows: [firstRow, secondRow, thirdRow],
+      subgroups,
     }
   })
 }
@@ -559,8 +806,15 @@ function normalizeIssueMatrix(issue) {
 function emptyGroups() {
   return Array.from({ length: RESULT_GROUP_COUNT }, (_, index) => ({
     title: `第${index + 1}组`,
-    rows: [[], [], []],
+    subgroups: Array.from({ length: GRID_COLUMNS }, (_, fixedCol) => ({
+      label: `${index + 1}.${fixedCol + 1}`,
+      columns: [],
+    })),
   }))
+}
+
+function buildColumnId(groupIndex, fixedCol, columnIndex) {
+  return `g${groupIndex + 1}-s${fixedCol + 1}-c${columnIndex + 1}`
 }
 
 function formatNumber(number) {
