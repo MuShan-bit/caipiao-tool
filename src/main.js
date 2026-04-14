@@ -90,9 +90,6 @@ function renderHeader() {
         <button class="icon-btn" type="button" data-action="open-history" aria-label="历史记录">
           ${historyIcon()}
         </button>
-        <button class="icon-btn" type="button" aria-label="设置">
-          ${settingsIcon()}
-        </button>
       </div>
     </header>
   `
@@ -600,15 +597,6 @@ function historyIcon() {
       <path d="M4 12a8 8 0 1 0 2.3-5.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
       <path d="M4 4v3.5h3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
       <path d="M12 8v4l2.5 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-    </svg>
-  `
-}
-
-function settingsIcon() {
-  return `
-    <svg viewBox="0 0 24 24" fill="none" role="img" aria-hidden="true">
-      <path d="M10.3 3h3.4l.6 2.1c.5.2 1 .4 1.4.8l2.1-.6 1.7 3-1.6 1.5c.1.5.1 1.1 0 1.6l1.6 1.5-1.7 3-2.1-.6c-.4.3-.9.6-1.4.8l-.6 2.1h-3.4l-.6-2.1a5.9 5.9 0 0 1-1.4-.8l-2.1.6-1.7-3 1.6-1.5a5.2 5.2 0 0 1 0-1.6L3.4 8.3l1.7-3 2.1.6c.4-.3.9-.6 1.4-.8L10.3 3Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-      <circle cx="12" cy="12" r="2.5" stroke="currentColor" stroke-width="1.6"/>
     </svg>
   `
 }
