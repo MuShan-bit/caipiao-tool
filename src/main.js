@@ -134,7 +134,7 @@ function renderInputView() {
                         type="text"
                         inputmode="numeric"
                         maxlength="1"
-                        pattern="[1-9]"
+                        pattern="[0-9]"
                         placeholder="-"
                         aria-label="第${issueIndex + 1}期 第${cellIndex + 1}格"
                         data-issue-index="${issueIndex}"
@@ -248,7 +248,7 @@ function onDigitKeyDown(event) {
     return
   }
 
-  if (!/^[1-9]$/.test(event.key)) {
+  if (!/^[0-9]$/.test(event.key)) {
     event.preventDefault()
   }
 }
@@ -260,7 +260,7 @@ function onDigitInput(event) {
   const order = Number(input.getAttribute('data-order'))
 
   let normalized = input.value.slice(-1)
-  if (!/^[1-9]$/.test(normalized)) {
+  if (!/^[0-9]$/.test(normalized)) {
     normalized = ''
   }
 
@@ -359,8 +359,11 @@ function normalizeIssueMatrix(issue) {
   return Array.from({ length: GRID_ROWS }, (_, row) =>
     Array.from({ length: GRID_COLUMNS }, (_, col) => {
       const rawValue = issue[row * GRID_COLUMNS + col]
+      if (rawValue === '') {
+        return null
+      }
       const value = Number(rawValue)
-      if (!Number.isInteger(value) || value < 1 || value > 9) {
+      if (!Number.isInteger(value) || value < 0 || value > 9) {
         return null
       }
       return value
