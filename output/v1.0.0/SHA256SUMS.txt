@@ -1,0 +1,2 @@
+08fab00affb266b87f3a30e4b660485a41090a7dfb42ae00c716789a3a6da2c6  output/v1.0.0/caipiao-tool-v1.0.0-android-debug.apk
+6c5a5d8869a7f9177c229ad702359383f0b9217f45b0d5824ba09b2e40a0541f  output/v1.0.0/caipiao-tool-v1.0.0-android-release-unsigned.apk
